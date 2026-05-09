@@ -1,0 +1,140 @@
+{
+  "entities": {
+    "Group": {
+      "title": "Group",
+      "description": "A cohort or classroom of participants and facilitators.",
+      "type": "object",
+      "properties": {
+        "name": { "type": "string" },
+        "code": { "type": "string" },
+        "facilitators": { "type": "array", "items": { "type": "string" } },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["name", "code", "facilitators"]
+    },
+    "UserProfile": {
+      "title": "User Profile",
+      "description": "Profile information for facilitators and participants.",
+      "type": "object",
+      "properties": {
+        "username": { "type": "string" },
+        "role": { "type": "string", "enum": ["admin", "facilitator", "participant"] },
+        "groupIds": { "type": "array", "items": { "type": "string" } },
+        "lastActive": { "type": "string", "format": "date-time" }
+      },
+      "required": ["username", "role"]
+    },
+    "Client": {
+      "title": "AI Client",
+      "description": "A fictional AI persona for participants to interview.",
+      "type": "object",
+      "properties": {
+        "name": { "type": "string" },
+        "meta": { "type": "string" },
+        "style": { "type": "string" },
+        "type": { "type": "string", "enum": ["Privatkunde", "Bedriftskunde"] },
+        "bolig": { "type": "string" },
+        "livssituasjon": { "type": "string" },
+        "budsjett": { "type": "string" },
+        "prioriteringer": { "type": "string" },
+        "onskerIkke": { "type": "string" },
+        "beskrivelse": { "type": "string" },
+        "ekstraKontekst": { "type": "string" },
+        "isVisible": { "type": "boolean" },
+        "createdBy": { "type": "string" }
+      },
+      "required": ["name", "isVisible"]
+    },
+    "Interaction": {
+      "title": "Interaction",
+      "description": "A single Q&A turn between a participant and an AI client.",
+      "type": "object",
+      "properties": {
+        "clientId": { "type": "string" },
+        "participantId": { "type": "string" },
+        "question": { "type": "string" },
+        "answer": { "type": "string" },
+        "status": { "type": "string", "enum": ["pending", "approved", "rejected"] },
+        "priority": { "type": "string", "enum": ["hi", "lo"] },
+        "timestamp": { "type": "string", "format": "date-time" }
+      },
+      "required": ["clientId", "participantId", "question", "status"]
+    },
+    "BookingSession": {
+      "title": "Booking Session",
+      "description": "A time slot for supervision.",
+      "type": "object",
+      "properties": {
+        "facilitatorId": { "type": "string" },
+        "facilitatorName": { "type": "string" },
+        "startTime": { "type": "string", "format": "date-time" },
+        "endTime": { "type": "string", "format": "date-time" },
+        "participantId": { "type": "string" },
+        "participantName": { "type": "string" },
+        "topic": { "type": "string" },
+        "status": { "type": "string", "enum": ["open", "booked", "cancelled"] },
+        "cancelReason": { "type": "string" }
+      },
+      "required": ["facilitatorId", "startTime", "endTime", "status"]
+    },
+    "Registration": {
+      "title": "Registration",
+      "description": "An event that participants can sign up for.",
+      "type": "object",
+      "properties": {
+        "title": { "type": "string" },
+        "description": { "type": "string" },
+        "date": { "type": "string", "format": "date-time" },
+        "location": { "type": "string" },
+        "deadline": { "type": "string", "format": "date-time" },
+        "maxSeats": { "type": "integer" },
+        "isBinding": { "type": "boolean" },
+        "isActive": { "type": "boolean" },
+        "fields": { "type": "array" }
+      },
+      "required": ["title", "isActive"]
+    },
+    "RegistrationEntry": {
+      "title": "Registration Entry",
+      "description": "A participant's signup for an event.",
+      "type": "object",
+      "properties": {
+        "participantId": { "type": "string" },
+        "participantName": { "type": "string" },
+        "responses": { "type": "object" },
+        "timestamp": { "type": "string", "format": "date-time" }
+      },
+      "required": ["participantId", "timestamp"]
+    }
+  },
+  "firestore": {
+    "/groups/{groupId}": {
+      "schema": "Group",
+      "description": "Main collection for cohorts."
+    },
+    "/groups/{groupId}/clients/{clientId}": {
+      "schema": "Client",
+      "description": "Fictional clients within a group."
+    },
+    "/groups/{groupId}/clients/{clientId}/interactions/{interactionId}": {
+      "schema": "Interaction",
+      "description": "Conversation history and approval queue."
+    },
+    "/groups/{groupId}/sessions/{sessionId}": {
+      "schema": "BookingSession",
+      "description": "Booking slots for group members."
+    },
+    "/groups/{groupId}/registrations/{regId}": {
+      "schema": "Registration",
+      "description": "Events for group members."
+    },
+    "/groups/{groupId}/registrations/{regId}/entries/{userId}": {
+      "schema": "RegistrationEntry",
+      "description": "Signups for specific events."
+    },
+    "/users/{userId}": {
+      "schema": "UserProfile",
+      "description": "Global user profiles."
+    }
+  }
+}

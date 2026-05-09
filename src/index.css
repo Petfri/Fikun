@@ -1,0 +1,70 @@
+@import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@300;400;500;700&family=DM+Serif+Display:ital@0;1&display=swap');
+@import "tailwindcss";
+@plugin "@tailwindcss/typography";
+
+@theme {
+  --font-serif: "DM Serif Display", serif;
+  --font-sans: "DM Sans", sans-serif;
+  
+  --color-cream: #F7F4EE;
+  --color-bark: #51483a;
+  --color-brand: #1a5c75;
+  --color-brand-light: #e8f3f7;
+  --color-mid: #66584b;
+  --color-ok: #2D6A4F;
+  --color-ok-light: #EAF3DE;
+  --color-hi: #A32D2D;
+  --color-hi-light: #FCEBEB;
+  --color-lo: #8C6A1A;
+  --color-lo-light: #FDF3DC;
+}
+
+:root {
+  --bg-cream: #F7F4EE;
+  --text-bark: #51483a;
+}
+
+body {
+  background-color: var(--bg-cream);
+  color: var(--text-bark);
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+.serif {
+  font-family: var(--font-serif);
+}
+
+.glass {
+  background: rgba(255, 255, 255, 0.7);
+  backdrop-filter: blur(12px);
+  border: 1px solid rgba(44, 36, 22, 0.1);
+}
+
+.card-hover {
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.card-hover:hover {
+  border-color: rgba(26, 92, 117, 0.25);
+  transform: translateY(-1px);
+}
+
+/* Custom Scrollbar */
+::-webkit-scrollbar {
+  width: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: rgba(44, 36, 22, 0.1);
+  border-radius: 10px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(44, 36, 22, 0.2);
+}

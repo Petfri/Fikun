@@ -1,0 +1,169 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    
+    // 0. Global Safety Net
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // --- Helpers ---
+    
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isEmailVerified() {
+      return isSignedIn() && request.auth.token.email_verified == true;
+    }
+
+    function isValidId(id) {
+      return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    function isOwner(userId) {
+      return isSignedIn() && request.auth.uid == userId;
+    }
+
+    function getUserData() {
+      return get(/databases/$(database)/documents/users/$(request.auth.uid)).data;
+    }
+
+    function isAdmin() {
+      return isSignedIn() && getUserData().role == 'admin';
+    }
+
+    function isFacilitatorOfGroup(groupId) {
+      return isSignedIn() && (
+        getUserData().role == 'facilitator' && groupId in getUserData().groupIds
+      );
+    }
+
+    function isMemberOfGroup(groupId) {
+      return isSignedIn() && (
+        groupId in getUserData().groupIds || isAdmin()
+      );
+    }
+
+    // --- Collection Rules ---
+
+    // 1. User Profiles
+    match /users/{userId} {
+      function isValidUser(data) {
+        return data.username is string && data.username.size() <= 50
+            && data.role in ['admin', 'facilitator', 'participant']
+            && (data.groupIds is list || !('groupIds' in data));
+      }
+
+      allow get: if isSignedIn() && (request.auth.uid == userId || isAdmin());
+      allow list: if isAdmin();
+      
+      allow create: if isSignedIn() && request.auth.uid == userId 
+                  && isValidUser(incoming())
+                  && incoming().role == 'participant' // Default role
+                  && incoming().keys().hasAll(['username', 'role'])
+                  && incoming().keys().size() == 2;
+
+      allow update: if isSignedIn() && request.auth.uid == userId
+                  && (
+                    // Only allow updating non-RBAC fields
+                    incoming().diff(existing()).affectedKeys().hasOnly(['username', 'groupIds', 'lastActive'])
+                  )
+                  && (isAdmin() || incoming().role == existing().role);
+    }
+
+    // 2. Groups
+    match /groups/{groupId} {
+      function isValidGroup(data) {
+        return data.name is string && data.name.size() <= 100
+            && data.code is string && data.code.size() <= 20
+            && data.facilitators is list;
+      }
+
+      allow get: if isMemberOfGroup(groupId) || isAdmin();
+      allow create: if isAdmin();
+      allow update: if isAdmin() || (isFacilitatorOfGroup(groupId) && incoming().diff(existing()).affectedKeys().hasOnly(['name', 'code']));
+      
+      // 3. Clients
+      match /clients/{clientId} {
+        function isValidClient(data) {
+          return data.name is string && data.name.size() <= 100
+              && data.meta is string && data.meta.size() <= 500
+              && data.isVisible is bool;
+        }
+
+        allow read: if isMemberOfGroup(groupId) || isAdmin();
+        allow create: if isFacilitatorOfGroup(groupId) && isValidClient(incoming());
+        allow update: if isFacilitatorOfGroup(groupId) && isValidClient(incoming());
+
+        // 4. Interactions
+        match /interactions/{interactionId} {
+          function isValidInteraction(data) {
+            return data.question is string && data.question.size() <= 2000
+                && data.status in ['pending', 'approved', 'rejected']
+                && data.clientId == clientId
+                && data.participantId == request.auth.uid;
+          }
+
+          allow read: if isMemberOfGroup(groupId) && (request.auth.uid == existing().participantId || isFacilitatorOfGroup(groupId));
+          
+          allow create: if isMemberOfGroup(groupId) 
+                      && isValidInteraction(incoming())
+                      && incoming().status == 'pending'
+                      && incoming().timestamp == request.time;
+
+          allow update: if isMemberOfGroup(groupId) && (
+            // Participant can cancel
+            (request.auth.uid == existing().participantId && incoming().diff(existing()).affectedKeys().hasOnly(['status']) && incoming().status == 'rejected') ||
+            // Facilitator can approve/reject and edit answer
+            (isFacilitatorOfGroup(groupId) && incoming().diff(existing()).affectedKeys().hasOnly(['status', 'answer', 'priority']))
+          );
+        }
+      }
+
+      // 5. Booking Sessions
+      match /sessions/{sessionId} {
+        function isValidSession(data) {
+          return data.facilitatorId is string
+              && data.startTime is timestamp
+              && data.endTime is timestamp
+              && data.status in ['open', 'booked', 'cancelled'];
+        }
+
+        allow read: if isMemberOfGroup(groupId);
+        allow create: if isFacilitatorOfGroup(groupId) && isValidSession(incoming());
+        
+        allow update: if isMemberOfGroup(groupId) && (
+          // Participant: Book
+          (existing().status == 'open' && incoming().status == 'booked' 
+           && incoming().participantId == request.auth.uid
+           && incoming().diff(existing()).affectedKeys().hasOnly(['status', 'participantId', 'participantName', 'topic'])) ||
+          // Facilitator: Cancel or Manage
+          (isFacilitatorOfGroup(groupId))
+        );
+      }
+
+      // 6. Registrations
+      match /registrations/{regId} {
+        allow read: if isMemberOfGroup(groupId);
+        allow create: if isFacilitatorOfGroup(groupId);
+        allow update: if isFacilitatorOfGroup(groupId);
+
+        match /entries/{userId} {
+          allow read: if isMemberOfGroup(groupId) && (request.auth.uid == userId || isFacilitatorOfGroup(groupId));
+          allow create: if isMemberOfGroup(groupId) && request.auth.uid == userId 
+                      && get(/databases/$(database)/documents/groups/$(groupId)/registrations/$(regId)).data.isActive == true;
+          allow delete: if isMemberOfGroup(groupId) && request.auth.uid == userId;
+        }
+      }
+    }
+  }
+}

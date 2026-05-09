@@ -1,0 +1,218 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    
+    // 0. Global Safety Net
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // --- Helpers ---
+    
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isEmailVerified() {
+      return isSignedIn() && request.auth.token.email_verified == true;
+    }
+
+    function isValidId(id) {
+      return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    function isOwner(userId) {
+      return isSignedIn() && request.auth.uid == userId;
+    }
+
+    function getUserData() {
+      return get(/databases/$(database)/documents/users/$(request.auth.uid)).data;
+    }
+
+    function isAdmin() {
+      return isSignedIn() && (
+        request.auth.token.email == 'post@peterfriberg.no' ||
+        (exists(/databases/$(database)/documents/users/$(request.auth.uid)) && 
+         get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin')
+      );
+    }
+
+    function isFacilitator() {
+      return isSignedIn() && (
+        request.auth.token.email == 'post@peterfriberg.no' ||
+        (exists(/databases/$(database)/documents/users/$(request.auth.uid)) && 
+         get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'facilitator')
+      );
+    }
+
+    function isMemberOfGroup(groupId) {
+      return isSignedIn() && (
+        request.auth.token.email == 'post@peterfriberg.no' ||
+        (exists(/databases/$(database)/documents/users/$(request.auth.uid)) && (
+          get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin' ||
+          (exists(/databases/$(database)/documents/groups/$(groupId)) && (
+            request.auth.uid in get(/databases/$(database)/documents/groups/$(groupId)).data.facilitators || 
+            groupId in get(/databases/$(database)/documents/users/$(request.auth.uid)).data.get('groupIds', [])
+          ))
+        ))
+      );
+    }
+
+    function isSameDay(t1, t2) {
+      return t1.day() == t2.day() && t1.month() == t2.month() && t1.year() == t2.year();
+    }
+
+    function canCreateInteraction(userId) {
+      let user = get(/databases/$(database)/documents/users/$(userId)).data;
+      let daily = user.dailyInteractions;
+      return user.role == 'participant' && (
+        !isSameDay(request.time, daily.date) || daily.count < 5
+      );
+    }
+
+    // --- Collection Rules ---
+
+    // 1. User Profiles
+    match /users/{userId} {
+      function isValidUser(data) {
+        return data.username is string && data.username.size() <= 128
+            && data.role in ['admin', 'facilitator', 'participant']
+            && (data.groupIds is list || !('groupIds' in data))
+            && (data.lastActive is timestamp || !('lastActive' in data));
+      }
+
+      allow get: if isSignedIn() && (request.auth.uid == userId || request.auth.token.email == 'post@peterfriberg.no');
+      allow list: if isAdmin();
+      
+      allow create: if isOwner(userId) && isValidId(userId)
+                  && isValidUser(incoming())
+                  && incoming().keys().hasAll(['username', 'role'])
+                  && incoming().keys().size() <= 6;
+
+      allow update: if isOwner(userId) && isValidId(userId)
+                  && (
+                    incoming().diff(existing()).affectedKeys().hasOnly(['username', 'groupIds', 'lastActive', 'role'])
+                  )
+                  && (request.auth.token.email == 'post@peterfriberg.no' || incoming().role == existing().role);
+    }
+
+    // 2. Groups
+    match /groups/{groupId} {
+      function isValidGroup(data) {
+        return data.name is string && data.name.size() <= 200
+            && data.code is string && data.code.size() <= 50
+            && data.facilitators is list && data.facilitators.size() <= 100
+            && data.facilitators.hasAny([request.auth.uid]);
+      }
+
+      allow get: if isMemberOfGroup(groupId) && isValidId(groupId);
+      allow list: if isSignedIn();
+      
+      allow create: if isSignedIn() && (request.auth.token.email == 'post@peterfriberg.no' || (exists(/databases/$(database)/documents/users/$(request.auth.uid)) && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'facilitator'))
+                  && isValidId(groupId) && isValidGroup(incoming());
+      
+      allow update: if (isAdmin() || isFacilitator()) && isValidId(groupId)
+                  && (isAdmin() || incoming().diff(existing()).affectedKeys().hasOnly(['name', 'code', 'facilitators']));
+      
+      // 3. Clients
+      match /clients/{clientId} {
+        function isValidClient(data) {
+          return data.name is string && data.name.size() >= 1 && data.name.size() <= 200
+              && (data.meta is string || !('meta' in data))
+              && (data.style is string || !('style' in data))
+              && (data.status is string || !('status' in data))
+              && (data.deadline is string || !('deadline' in data))
+              && (data.technicalRequirements is list || !('technicalRequirements' in data))
+              && (data.type in ['Privatkunde', 'Bedriftskunde'] || !('type' in data))
+              && (data.bolig is string || !('bolig' in data))
+              && (data.livssituasjon is string || !('livssituasjon' in data))
+              && (data.budsjett is string || !('budsjett' in data))
+              && (data.prioriteringer is string || !('prioriteringer' in data))
+              && (data.onskerIkke is string || !('onskerIkke' in data))
+              && (data.beskrivelse is string || !('beskrivelse' in data))
+              && (data.ekstraKontekst is string || !('ekstraKontekst' in data))
+              && data.isVisible is bool;
+        }
+
+        allow get: if isMemberOfGroup(groupId) && isValidId(clientId);
+        allow list: if isMemberOfGroup(groupId);
+        allow create: if isFacilitator() && isValidId(clientId) && isValidClient(incoming()) && incoming().createdAt == request.time;
+        allow update: if isFacilitator() && isValidId(clientId) && isValidClient(incoming());
+
+        // 4. Interactions
+        match /interactions/{interactionId} {
+          function isValidInteraction(data) {
+            return data.question is string && data.question.size() <= 5000
+                && data.status in ['pending', 'approved', 'rejected']
+                && data.participantId == request.auth.uid;
+          }
+
+          allow read: if isSignedIn() && (
+            isAdmin() || 
+            isFacilitator() || 
+            (isMemberOfGroup(groupId) && request.auth.uid == resource.data.participantId)
+          );
+          
+          allow create: if isMemberOfGroup(groupId) && isValidId(interactionId)
+                      && isValidInteraction(incoming())
+                      && incoming().status == 'pending'
+                      && incoming().createdAt == request.time
+                      && canCreateInteraction(request.auth.uid);
+
+          allow update: if isMemberOfGroup(groupId) && isValidId(interactionId) && (
+            // Participant can cancel own
+            (request.auth.uid == resource.data.participantId && incoming().diff(existing()).affectedKeys().hasOnly(['status']) && incoming().status == 'rejected') ||
+            // Facilitator can approve/reject
+            ((isAdmin() || isFacilitator()) && (
+              incoming().diff(existing()).affectedKeys().hasOnly(['status', 'answer', 'updatedAt'])
+            ))
+          );
+        }
+      }
+
+      // 5. Booking Sessions
+      match /sessions/{sessionId} {
+        function isValidSession(data) {
+          return data.facilitatorId is string
+              && data.startTime is timestamp
+              && data.endTime is timestamp
+              && data.status in ['open', 'booked', 'cancelled'];
+        }
+
+        allow read: if isMemberOfGroup(groupId) && isValidId(sessionId);
+        allow create: if (isAdmin() || isFacilitator()) && isValidId(sessionId) && isValidSession(incoming());
+        
+        allow update: if isMemberOfGroup(groupId) && isValidId(sessionId) && (
+          // Participant: Book
+          (existing().status == 'open' && incoming().status == 'booked' 
+           && incoming().participantId == request.auth.uid
+           && incoming().diff(existing()).affectedKeys().hasOnly(['status', 'participantId', 'participantName', 'topic'])) ||
+          // Facilitator: Cancel or Manage
+          (isAdmin() || isFacilitator())
+        );
+      }
+
+      // 6. Registrations
+      match /registrations/{regId} {
+        allow read: if isMemberOfGroup(groupId) && isValidId(regId);
+        allow create: if isFacilitatorOfGroup(groupId) && isValidId(regId);
+        allow update: if isFacilitatorOfGroup(groupId) && isValidId(regId);
+
+        match /entries/{userId} {
+          allow read: if isMemberOfGroup(groupId) && isValidId(userId) && (request.auth.uid == userId || isFacilitatorOfGroup(groupId));
+          allow create: if isMemberOfGroup(groupId) && isOwner(userId) && isValidId(userId)
+                      && get(/databases/$(database)/documents/groups/$(groupId)/registrations/$(regId)).data.isActive == true;
+          allow delete: if isMemberOfGroup(groupId) && isOwner(userId) && isValidId(userId);
+        }
+      }
+    }
+  }
+}
