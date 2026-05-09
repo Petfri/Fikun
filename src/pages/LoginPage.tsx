@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { useNavigate, Link, useSearchParams } from 'react-router-dom';
 import { ChevronLeft, ShieldCheck, ArrowRight, User as UserIcon, LogIn, Key, Hash } from 'lucide-react';
-import { loginWithGoogle, loginAnonymously, db, handleFirestoreError, OperationType } from '../lib/firebase';
+import { loginWithGoogle, loginAnonymously, db, handleFirestoreError, OperationType, useAuth } from '../lib/firebase';
 import { doc, getDoc, setDoc, serverTimestamp, collection, query, where, getDocs } from 'firebase/firestore';
 
 type LoginType = 'participant' | 'facilitator';

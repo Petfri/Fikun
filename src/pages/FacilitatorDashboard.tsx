@@ -28,7 +28,8 @@ import {
   Settings,
   Database,
   Smartphone,
-  RefreshCw
+  RefreshCw,
+  Printer
 } from 'lucide-react';
 import { auth, logout, db, handleFirestoreError, OperationType } from '../lib/firebase';
 import { onAuthStateChanged } from 'firebase/auth';
@@ -650,6 +651,48 @@ export default function FacilitatorDashboard() {
     } catch (error) {
       console.error("Save summary failed:", error);
     }
+  };
+
+  const handlePrintSummary = () => {
+    if (!selectedClient || !selectedClient.aiSummary) return;
+    
+    const printWindow = window.open('', '_blank');
+    if (!printWindow) return;
+
+    const sections = selectedClient.aiSummary.split('\n\n').map((para: string) => {
+      const trimmed = para.trim();
+      const isHeading = /^\d+\./.test(trimmed) || (trimmed.length < 60 && /^[A-ZÆØÅ]/.test(trimmed) && !trimmed.endsWith('.') && !trimmed.includes(','));
+      return isHeading ? `<h2>${trimmed}</h2>` : `<p>${trimmed}</p>`;
+    }).join('');
+
+    printWindow.document.write(`
+      <html>
+        <head>
+          <title>Kunderapport - ${selectedClient.name}</title>
+          <style>
+            body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; line-height: 1.6; color: #333; max-width: 800px; margin: 40px auto; padding: 20px; }
+            h1 { color: #1a5c75; border-bottom: 2px solid #1a5c75; padding-bottom: 10px; margin-bottom: 30px; }
+            h2 { color: #1a5c75; font-size: 1.2rem; margin-top: 30px; margin-bottom: 10px; text-transform: uppercase; letter-spacing: 0.1em; font-weight: 800; border-bottom: 1px solid #eee; padding-bottom: 5px; }
+            p { margin-bottom: 15px; font-size: 1rem; color: #444; }
+            .header-info { display: flex; justify-content: space-between; margin-bottom: 40px; font-size: 0.9rem; color: #666; }
+            @media print {
+              body { margin: 0; padding: 0; }
+              button { display: none; }
+            }
+          </style>
+        </head>
+        <body>
+          <div class="header-info">
+            <div>Dato: ${new Date().toLocaleDateString('no-NO')}</div>
+            <div>Prosjekt: ${groups.find(g => g.id === selectedGroupId)?.name || 'Ukjent'}</div>
+          </div>
+          <h1>Kunderapport: ${selectedClient.name}</h1>
+          ${sections}
+          <script>window.print();</script>
+        </body>
+      </html>
+    `);
+    printWindow.document.close();
   };
 
   const labels = {
@@ -1904,20 +1947,29 @@ export default function FacilitatorDashboard() {
                              </div>
                              <div className="flex items-center gap-2">
                                 {selectedClient.aiSummary && (
-                                  <button 
-                                    onClick={() => {
-                                      if (isEditingSummary) {
-                                        saveEditedSummary();
-                                      } else {
-                                        setEditableSummary(selectedClient.aiSummary);
-                                        setIsEditingSummary(true);
-                                      }
-                                    }}
-                                    className="px-4 py-2 bg-white text-brand border border-brand/20 text-[10px] font-bold rounded-xl hover:bg-brand-light transition-all flex items-center gap-2"
-                                  >
-                                    {isEditingSummary ? <Check size={12} /> : <Edit2 size={12} />}
-                                    {isEditingSummary ? (lang === 'no' ? 'Lagre' : 'Save') : (lang === 'no' ? 'Rediger' : 'Edit')}
-                                  </button>
+                                  <>
+                                    <button 
+                                      onClick={handlePrintSummary}
+                                      className="px-4 py-2 bg-white text-mid border border-bark/10 text-[10px] font-bold rounded-xl hover:bg-bark/5 transition-all flex items-center gap-2"
+                                    >
+                                      <Printer size={12} />
+                                      {lang === 'no' ? 'Skriv ut' : 'Print'}
+                                    </button>
+                                    <button 
+                                      onClick={() => {
+                                        if (isEditingSummary) {
+                                          saveEditedSummary();
+                                        } else {
+                                          setEditableSummary(selectedClient.aiSummary);
+                                          setIsEditingSummary(true);
+                                        }
+                                      }}
+                                      className="px-4 py-2 bg-white text-brand border border-brand/20 text-[10px] font-bold rounded-xl hover:bg-brand-light transition-all flex items-center gap-2"
+                                    >
+                                      {isEditingSummary ? <Check size={12} /> : <Edit2 size={12} />}
+                                      {isEditingSummary ? (lang === 'no' ? 'Lagre' : 'Save') : (lang === 'no' ? 'Rediger' : 'Edit')}
+                                    </button>
+                                  </>
                                 )}
                                 <button 
                                   onClick={generateClientSummary}
@@ -1950,13 +2002,16 @@ export default function FacilitatorDashboard() {
                                        {selectedClient.aiSummary.split('\n\n').map((paragraph: string, idx: number) => {
                                           const trimmed = paragraph.trim();
                                           if (!trimmed) return null;
-                                          const isHeading = /^\d+\./.test(trimmed) || (trimmed.length < 50 && /^[A-ZÆØÅ]/.test(trimmed) && !trimmed.endsWith('.'));
+                                          const isHeading = /^\d+\./.test(trimmed) || (trimmed.length < 60 && /^[A-ZÆØÅ]/.test(trimmed) && !trimmed.endsWith('.') && !trimmed.includes(','));
                                           return (
-                                             <div key={idx} className={`${isHeading ? 'pt-2' : ''}`}>
+                                             <div key={idx} className={`${isHeading ? 'pt-4' : ''}`}>
                                                 {isHeading ? (
-                                                   <h5 className="text-[11px] font-black uppercase tracking-[0.15em] text-brand mb-3 pb-2 border-b border-brand/10">{trimmed}</h5>
+                                                   <h5 className="text-[12px] font-black uppercase tracking-[0.15em] text-brand mb-4 pb-2 border-b border-brand/20 flex items-center gap-2">
+                                                      <span className="w-1.5 h-1.5 rounded-full bg-brand/40" />
+                                                      {trimmed}
+                                                   </h5>
                                                 ) : (
-                                                   <p className="text-sm font-medium text-bark/70 leading-relaxed whitespace-pre-wrap mb-4">
+                                                   <p className="text-[13px] font-medium text-bark/80 leading-relaxed whitespace-pre-wrap mb-4 pl-3 border-l border-brand/5">
                                                       {trimmed}
                                                    </p>
                                                 )}
